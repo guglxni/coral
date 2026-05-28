@@ -2,7 +2,7 @@ use super::*;
 use crate::runtime::catalog;
 use crate::runtime::registry::{CompiledQuerySource, register_sources_blocking};
 use crate::runtime::source_functions::SourceFunctionRegistry;
-use crate::{QuerySource, SourceInputResolver, SourceInputResolverError};
+use crate::{QuerySource, SourceInputContext, SourceInputResolver, SourceInputResolverError};
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::error::DataFusionError;
 use datafusion::prelude::SessionContext;
@@ -117,7 +117,7 @@ struct RotatingInputResolver {
 impl SourceInputResolver for RotatingInputResolver {
     async fn resolve_inputs(
         &self,
-        _source: &QuerySource,
+        _source: &SourceInputContext,
     ) -> std::result::Result<BTreeMap<String, String>, SourceInputResolverError> {
         let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
         Ok(BTreeMap::from([(
@@ -226,10 +226,10 @@ fn compile_sources_with_inputs(
     ));
     let source = QuerySource::new(manifest, variables.clone(), secrets);
     let source_inputs = match source_input_resolver {
-        Some(resolver) => Arc::new(McpSourceInputs::new(
+        Some(resolver) => Arc::new(McpSourceInputs::with_resolver(
             Arc::clone(&resolved_inputs),
-            source.clone(),
-            Some(resolver),
+            SourceInputContext::from_query_source(&source),
+            resolver,
         )),
         None => Arc::new(McpSourceInputs::static_inputs(resolved_inputs)),
     };
@@ -1027,12 +1027,12 @@ async fn stdio_env_resolves_source_inputs_for_each_tool_call() {
     ));
     let resolver_calls = Arc::new(AtomicUsize::new(0));
     let source = QuerySource::new(manifest, variables, secrets);
-    let source_inputs = Arc::new(McpSourceInputs::new(
+    let source_inputs = Arc::new(McpSourceInputs::with_resolver(
         resolved_inputs,
-        source,
-        Some(Arc::new(RotatingInputResolver {
+        SourceInputContext::from_query_source(&source),
+        Arc::new(RotatingInputResolver {
             calls: Arc::clone(&resolver_calls),
-        })),
+        }),
     ));
     let caller = StdioMcpToolCaller {
         source_name: mcp_manifest.common.name.clone(),

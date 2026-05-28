@@ -29,7 +29,7 @@ use crate::backends::{
     build_registered_table_function, internal_table_function_name, registered_columns_from_specs,
     required_filter_names,
 };
-use crate::{QuerySource, SourceInputResolver, SourceInputResolverError};
+use crate::{SourceInputContext, SourceInputResolver, SourceInputResolverError};
 
 #[derive(Debug, Clone)]
 struct McpCompiledSource {
@@ -43,24 +43,23 @@ struct McpCompiledSource {
 #[derive(Debug, Clone)]
 struct McpSourceInputs {
     fallback: Arc<BTreeMap<String, String>>,
-    source: Option<QuerySource>,
+    source: Option<SourceInputContext>,
     resolver: Option<Arc<dyn SourceInputResolver>>,
 }
 
 impl McpSourceInputs {
-    fn new(
+    fn with_resolver(
         fallback: Arc<BTreeMap<String, String>>,
-        source: QuerySource,
-        resolver: Option<Arc<dyn SourceInputResolver>>,
+        source: SourceInputContext,
+        resolver: Arc<dyn SourceInputResolver>,
     ) -> Self {
         Self {
             fallback,
             source: Some(source),
-            resolver,
+            resolver: Some(resolver),
         }
     }
 
-    #[cfg(test)]
     fn static_inputs(fallback: Arc<BTreeMap<String, String>>) -> Self {
         Self {
             fallback,
@@ -90,11 +89,14 @@ pub(crate) fn compile_manifest(
         &request.source_secrets,
         &request.source_variables,
     ));
-    let source_inputs = Arc::new(McpSourceInputs::new(
-        Arc::clone(&resolved_inputs),
-        request.source.clone(),
-        request.source_input_resolver.clone(),
-    ));
+    let source_inputs = Arc::new(match request.source_input_resolver.clone() {
+        Some(resolver) => McpSourceInputs::with_resolver(
+            Arc::clone(&resolved_inputs),
+            SourceInputContext::from_query_source(request.source),
+            resolver,
+        ),
+        None => McpSourceInputs::static_inputs(Arc::clone(&resolved_inputs)),
+    });
     let caller = Arc::new(StdioMcpToolCaller {
         source_name: manifest.common.name.clone(),
         server: manifest.server.clone(),

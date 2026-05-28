@@ -15,7 +15,7 @@ use crate::backends::{
     build_registered_table_function, internal_table_function_name, registered_columns_from_specs,
     required_filter_names,
 };
-use crate::{QuerySource, RequestAuthenticator, SourceInputResolver};
+use crate::{RequestAuthenticator, SourceInputContext, SourceInputResolver};
 use coral_spec::backends::http::{HttpSourceManifest, HttpTableSpec};
 pub(crate) mod auth;
 pub(crate) mod client;
@@ -42,7 +42,7 @@ pub(crate) use provider::HttpSourceTableProvider;
 #[derive(Debug, Clone)]
 struct HttpCompiledSource {
     manifest: HttpSourceManifest,
-    source: QuerySource,
+    source_input_context: SourceInputContext,
     source_secrets: std::collections::BTreeMap<String, String>,
     source_variables: std::collections::BTreeMap<String, String>,
     request_authenticators: HashMap<String, Arc<dyn RequestAuthenticator>>,
@@ -52,7 +52,7 @@ struct HttpCompiledSource {
 
 pub(crate) fn compile_source(
     manifest: HttpSourceManifest,
-    source: QuerySource,
+    source_input_context: SourceInputContext,
     source_secrets: std::collections::BTreeMap<String, String>,
     source_variables: std::collections::BTreeMap<String, String>,
     request_authenticators: HashMap<String, Arc<dyn RequestAuthenticator>>,
@@ -61,7 +61,7 @@ pub(crate) fn compile_source(
 ) -> Box<dyn CompiledBackendSource> {
     Box::new(HttpCompiledSource {
         manifest,
-        source,
+        source_input_context,
         source_secrets,
         source_variables,
         request_authenticators,
@@ -76,7 +76,7 @@ pub(crate) fn compile_manifest(
 ) -> Box<dyn CompiledBackendSource> {
     compile_source(
         manifest.clone(),
-        request.source.clone(),
+        SourceInputContext::from_query_source(request.source),
         request.source_secrets.clone(),
         request.source_variables.clone(),
         request.request_authenticators.clone(),
@@ -101,7 +101,7 @@ impl CompiledBackendSource for HttpCompiledSource {
             &self.source_secrets,
             &self.source_variables,
             &self.request_authenticators,
-            self.source.clone(),
+            self.source_input_context.clone(),
             self.source_input_resolver.clone(),
             self.body_capture_max_bytes,
         )?;
